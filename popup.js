@@ -5,6 +5,10 @@ const MODELS = [
 ];
 
 const container = document.getElementById('options');
+const bodyContent = document.getElementById('body-content');
+const enabledCheckbox = document.getElementById('enabled');
+const rememberCheckbox = document.getElementById('rememberAcrossConvos');
+const toastCheckbox = document.getElementById('showToast');
 
 const renderPreferred = (selected) => {
   container.innerHTML = '';
@@ -24,12 +28,23 @@ const renderPreferred = (selected) => {
   }
 };
 
-const toastCheckbox = document.getElementById('showToast');
+enabledCheckbox.addEventListener('change', () => {
+  chrome.storage.sync.set({ enabled: enabledCheckbox.checked });
+  bodyContent.classList.toggle('disabled', !enabledCheckbox.checked);
+});
+
+rememberCheckbox.addEventListener('change', () => {
+  chrome.storage.sync.set({ rememberAcrossConvos: rememberCheckbox.checked });
+});
+
 toastCheckbox.addEventListener('change', () => {
   chrome.storage.sync.set({ showToast: toastCheckbox.checked });
 });
 
-chrome.storage.sync.get({ preferredModel: 'pro', showToast: false }, (data) => {
+chrome.storage.sync.get({ preferredModel: 'pro', enabled: true, rememberAcrossConvos: false, showToast: false }, (data) => {
   renderPreferred(data.preferredModel);
+  enabledCheckbox.checked = data.enabled;
+  rememberCheckbox.checked = data.rememberAcrossConvos;
   toastCheckbox.checked = data.showToast;
+  bodyContent.classList.toggle('disabled', !data.enabled);
 });

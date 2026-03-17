@@ -8,16 +8,24 @@ let isEnforcing = false;
 let switchFailed = false;
 let userInteracting = false;
 let userChose = false;
-let trackedBtn = null;
 let lastTurnCount = 0;
 let preferredModel = 'pro';
+let enabled = true;
+let rememberAcrossConvos = false;
 let showToast = false;
 let targetModel = preferredModel;
 
-chrome.storage.sync.get({ preferredModel: 'pro', showToast: false }, (data) => {
+chrome.storage.sync.get({ preferredModel: 'pro', enabled: true, rememberAcrossConvos: false, showToast: false, userChosenModel: null }, (data) => {
   preferredModel = data.preferredModel;
+  enabled = data.enabled;
+  rememberAcrossConvos = data.rememberAcrossConvos;
   showToast = data.showToast;
-  targetModel = preferredModel;
+  if (data.rememberAcrossConvos && data.userChosenModel) {
+    targetModel = data.userChosenModel;
+    userChose = true;
+  } else {
+    targetModel = preferredModel;
+  }
 });
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.preferredModel) {
@@ -26,6 +34,19 @@ chrome.storage.onChanged.addListener((changes) => {
     switchFailed = false;
     userInteracting = false;
     userChose = false;
+    chrome.storage.sync.remove('userChosenModel');
+  }
+  if (changes.enabled) {
+    enabled = changes.enabled.newValue;
+    if (enabled) { switchFailed = false; userInteracting = false; }
+  }
+  if (changes.rememberAcrossConvos) {
+    rememberAcrossConvos = changes.rememberAcrossConvos.newValue;
+    if (!rememberAcrossConvos) {
+      userChose = false;
+      targetModel = preferredModel;
+      chrome.storage.sync.remove('userChosenModel');
+    }
   }
   if (changes.showToast) showToast = changes.showToast.newValue;
 });
@@ -51,24 +72,22 @@ const shouldSkip = () => SKIP_PATHS.some((p) => location.pathname.startsWith(p))
 
 const parseModel = (text) => KNOWN_MODELS.find((m) => text.trim().toLowerCase().includes(m)) ?? null;
 
-// Track user clicks on the model button to detect manual switches
-const trackButton = (btn) => {
-  if (btn === trackedBtn) return;
-  trackedBtn = btn;
-  btn.addEventListener('click', () => {
-    if (!isEnforcing) userInteracting = true;
-  }, true);
-};
+// Detect user clicks on the model button via delegation (survives re-renders)
+document.addEventListener('click', (e) => {
+  if (!isEnforcing && e.target.closest('button.input-area-switch')) userInteracting = true;
+}, true);
 
 // Resolve user interaction once the menu closes — adopt whatever they picked
 const resolveUserInteraction = () => {
   if (!userInteracting) return;
   if (document.querySelector('.mat-mdc-menu-panel')) return; // menu still open
   const btn = document.querySelector('button.input-area-switch');
-  if (!btn) return;
+  if (!btn) { userInteracting = false; return; }
   const picked = parseModel(btn.textContent);
-  if (picked) targetModel = picked;
+  if (!picked) { userInteracting = false; return; }
+  targetModel = picked;
   userChose = true;
+  if (rememberAcrossConvos) chrome.storage.sync.set({ userChosenModel: picked });
   switchFailed = false;
   userInteracting = false;
 };
@@ -84,7 +103,7 @@ const lockFocus = () => {
 
 const VERIFY_DELAY = 300;
 
-const dismissMenu = () => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+const dismissMenu = (panel) => panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 
 const openMenuAndSelect = async (btn, modelId) => {
   btn.click();
@@ -96,10 +115,10 @@ const openMenuAndSelect = async (btn, modelId) => {
   const items = panel.querySelectorAll('button.mat-mdc-menu-item, [role="menuitem"]');
   const texts = [...items].map((el) => el.textContent.trim().toLowerCase());
   const knownCount = texts.filter((t) => KNOWN_MODELS.some((m) => t.startsWith(m))).length;
-  if (knownCount < 2) { dismissMenu(); return false; }
+  if (knownCount < 2) { dismissMenu(panel); return false; }
 
   const target = [...items].find((el) => el.textContent.trim().toLowerCase().startsWith(modelId));
-  if (!target) { dismissMenu(); return false; }
+  if (!target) { dismissMenu(panel); return false; }
 
   target.click();
   await new Promise((r) => setTimeout(r, VERIFY_DELAY));
@@ -109,14 +128,12 @@ const openMenuAndSelect = async (btn, modelId) => {
 };
 
 const enforceModel = async () => {
-  if (isEnforcing || shouldSkip() || switchFailed || userInteracting) return;
+  if (!enabled || isEnforcing || shouldSkip() || switchFailed || userInteracting) return;
   isEnforcing = true;
 
   try {
     const btn = document.querySelector('button.input-area-switch');
     if (!btn) return;
-
-    trackButton(btn);
 
     const btnText = btn.textContent.trim().toLowerCase();
     if (btnText.includes(targetModel)) return;
@@ -168,20 +185,29 @@ const checkForNewTurns = () => {
 };
 
 setInterval(() => {
+  if (!enabled) return;
   resolveUserInteraction();
   checkForNewTurns();
   enforceModel();
 }, POLL_INTERVAL);
 
 // Re-check on SPA navigation
+const getConversationId = () => location.pathname.match(/\/app\/([^/?]+)/)?.[1] ?? null;
 let lastUrl = location.href;
+let lastConvId = getConversationId();
 new MutationObserver(() => {
   if (location.href !== lastUrl) {
     lastUrl = location.href;
-    targetModel = preferredModel;
+    const convId = getConversationId();
+    const isNewConversation = lastConvId && convId !== lastConvId;
+    lastConvId = convId;
+    if (!userChose || (isNewConversation && !rememberAcrossConvos)) {
+      targetModel = preferredModel;
+      userChose = false;
+      chrome.storage.sync.remove('userChosenModel');
+    }
     switchFailed = false;
     userInteracting = false;
-    userChose = false;
     lastTurnCount = 0;
     enforceModel();
   }
