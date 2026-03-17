@@ -84,7 +84,8 @@ const resolveUserInteraction = () => {
   const btn = document.querySelector('button.input-area-switch');
   if (!btn) { userInteracting = false; return; }
   const picked = parseModel(btn.textContent);
-  if (picked) targetModel = picked;
+  if (!picked) { userInteracting = false; return; }
+  targetModel = picked;
   userChose = true;
   if (rememberAcrossConvos) chrome.storage.sync.set({ userChosenModel: picked });
   switchFailed = false;
