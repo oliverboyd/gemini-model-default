@@ -5,21 +5,26 @@ const MENU_RENDER_DELAY = 400;
 const TURN_SELECTORS = 'model-response, user-query, .conversation-turn, [data-message-id]';
 
 let isEnforcing = false;
-let userOverride = false;
+let switchFailed = false;
+let userInteracting = false;
 let trackedBtn = null;
 let lastTurnCount = 0;
 let preferredModel = 'pro';
-let fallbackModel = 'none';
 let showToast = false;
+let targetModel = preferredModel;
 
-chrome.storage.sync.get({ preferredModel: 'pro', fallbackModel: 'none', showToast: false }, (data) => {
+chrome.storage.sync.get({ preferredModel: 'pro', showToast: false }, (data) => {
   preferredModel = data.preferredModel;
-  fallbackModel = data.fallbackModel;
   showToast = data.showToast;
+  targetModel = preferredModel;
 });
 chrome.storage.onChanged.addListener((changes) => {
-  if (changes.preferredModel) preferredModel = changes.preferredModel.newValue;
-  if (changes.fallbackModel) fallbackModel = changes.fallbackModel.newValue;
+  if (changes.preferredModel) {
+    preferredModel = changes.preferredModel.newValue;
+    targetModel = preferredModel;
+    switchFailed = false;
+    userInteracting = false;
+  }
   if (changes.showToast) showToast = changes.showToast.newValue;
 });
 
@@ -42,19 +47,56 @@ const showNotification = (msg) => {
 
 const shouldSkip = () => SKIP_PATHS.some((p) => location.pathname.startsWith(p));
 
+const parseModel = (text) => KNOWN_MODELS.find((m) => text.trim().toLowerCase().includes(m)) ?? null;
+
 // Track user clicks on the model button to detect manual switches
 const trackButton = (btn) => {
   if (btn === trackedBtn) return;
   trackedBtn = btn;
   btn.addEventListener('click', () => {
-    if (!isEnforcing) userOverride = true;
+    if (!isEnforcing) userInteracting = true;
   }, true);
+};
+
+// Resolve user interaction once the menu closes — adopt whatever they picked
+const resolveUserInteraction = () => {
+  if (!userInteracting) return;
+  if (document.querySelector('.mat-mdc-menu-panel')) return; // menu still open
+  const btn = document.querySelector('button.input-area-switch');
+  if (!btn) return;
+  const picked = parseModel(btn.textContent);
+  if (picked) targetModel = picked;
+  switchFailed = false;
+  userInteracting = false;
+};
+
+const saveFocus = () => {
+  const el = document.activeElement;
+  if (!el || el === document.body) return null;
+  if (el.selectionStart !== undefined) return { el, start: el.selectionStart, end: el.selectionEnd };
+  const sel = window.getSelection();
+  if (sel.rangeCount) return { el, range: sel.getRangeAt(0).cloneRange() };
+  return { el };
+};
+
+const restoreFocus = (saved) => {
+  if (!saved) return;
+  saved.el.focus();
+  if (saved.start !== undefined) {
+    saved.el.selectionStart = saved.start;
+    saved.el.selectionEnd = saved.end;
+  } else if (saved.range) {
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(saved.range);
+  }
 };
 
 const VERIFY_DELAY = 300;
 
-const openMenuAndSelect = async (btn, modelId) => {
+const openMenuAndSelect = async (btn, modelId, saved) => {
   btn.click();
+  restoreFocus(saved);
   await new Promise((r) => setTimeout(r, MENU_RENDER_DELAY));
 
   const panel = document.querySelector('.mat-mdc-menu-panel');
@@ -69,14 +111,15 @@ const openMenuAndSelect = async (btn, modelId) => {
   if (!target) return false;
 
   target.click();
+  restoreFocus(saved);
   await new Promise((r) => setTimeout(r, VERIFY_DELAY));
 
   const newText = btn.textContent.trim().toLowerCase();
   return newText.includes(modelId);
 };
 
-const enforcePro = async () => {
-  if (isEnforcing || shouldSkip() || userOverride) return;
+const enforceModel = async () => {
+  if (isEnforcing || shouldSkip() || switchFailed || userInteracting) return;
   isEnforcing = true;
 
   try {
@@ -86,63 +129,55 @@ const enforcePro = async () => {
     trackButton(btn);
 
     const btnText = btn.textContent.trim().toLowerCase();
-    if (btnText.includes(preferredModel)) return;
-    // Already on fallback model — don't fight it
-    if (fallbackModel !== 'none' && btnText.includes(fallbackModel)) return;
+    if (btnText.includes(targetModel)) return;
+
+    const saved = saveFocus();
 
     // Hide menu during switch so it's not visible to user
     const hide = document.createElement('style');
     hide.id = 'gemini-ext-hide';
-    hide.textContent = '.cdk-overlay-container { visibility: hidden !important; }';
+    hide.textContent = '.cdk-overlay-container { visibility: hidden !important; pointer-events: none !important; }';
     document.head.appendChild(hide);
 
     try {
-      const switched = await openMenuAndSelect(btn, preferredModel);
+      const switched = await openMenuAndSelect(btn, targetModel, saved);
       if (switched) {
         if (showToast) {
-          const name = preferredModel.charAt(0).toUpperCase() + preferredModel.slice(1);
+          const name = targetModel.charAt(0).toUpperCase() + targetModel.slice(1);
           showNotification(`Switched to ${name}`);
         }
         return;
       }
 
-      // Preferred model switch failed (rate limit) — try fallback
-      if (fallbackModel !== 'none' && fallbackModel !== preferredModel) {
-        const fbSwitched = await openMenuAndSelect(btn, fallbackModel);
-        if (fbSwitched) {
-          if (showToast) {
-            const name = fallbackModel.charAt(0).toUpperCase() + fallbackModel.slice(1);
-            showNotification(`${preferredModel.charAt(0).toUpperCase() + preferredModel.slice(1)} unavailable — switched to ${name}`);
-          }
-          return;
-        }
+      // Switch failed (e.g. rate-limited) — accept whatever Gemini has, retry on next navigation
+      const current = parseModel(btn.textContent);
+      if (current) targetModel = current;
+      switchFailed = true;
+      if (showToast) {
+        const name = targetModel.charAt(0).toUpperCase() + targetModel.slice(1);
+        showNotification(`${preferredModel.charAt(0).toUpperCase() + preferredModel.slice(1)} unavailable — using ${name}`);
       }
-
-      // Both failed or no fallback configured — stop retrying until next trigger
-      userOverride = true;
-      if (showToast) showNotification('Model switch failed — pausing until next turn');
     } finally {
       document.getElementById('gemini-ext-hide')?.remove();
+      restoreFocus(saved);
     }
   } finally {
     isEnforcing = false;
   }
 };
 
-// Detect new conversation turns — resets user override so model is re-enforced
+// Detect new conversation turns — resets switchFailed so enforcement can retry
 const checkForNewTurns = () => {
   const turns = document.querySelectorAll(TURN_SELECTORS);
   const count = turns.length;
-  if (count > lastTurnCount && lastTurnCount > 0) {
-    userOverride = false;
-    enforcePro();
-  }
+  if (count > lastTurnCount && lastTurnCount > 0) switchFailed = false;
   if (count > 0) lastTurnCount = count;
 };
 
 setInterval(() => {
+  resolveUserInteraction();
   checkForNewTurns();
-  enforcePro();
+  enforceModel();
 }, POLL_INTERVAL);
 
 // Re-check on SPA navigation
@@ -150,8 +185,10 @@ let lastUrl = location.href;
 new MutationObserver(() => {
   if (location.href !== lastUrl) {
     lastUrl = location.href;
-    userOverride = false;
+    targetModel = preferredModel;
+    switchFailed = false;
+    userInteracting = false;
     lastTurnCount = 0;
-    enforcePro();
+    enforceModel();
   }
 }).observe(document.body, { childList: true, subtree: true });
