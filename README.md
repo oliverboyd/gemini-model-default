@@ -23,7 +23,3 @@ Gemini often silently switches your model between conversations. This extension 
 3. Enable **Developer mode** (top right)
 4. Click **Load unpacked** and select the cloned directory
 5. Click the extension icon to configure your default model
-
-## Chrome Web Store
-
-Also available on the [Chrome Web Store](https://chromewebstore.google.com) (search "Gemini Model Default").
