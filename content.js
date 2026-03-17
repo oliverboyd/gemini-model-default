@@ -30,7 +30,10 @@ chrome.storage.onChanged.addListener((changes) => {
     userInteracting = false;
     userChose = false;
   }
-  if (changes.enabled) enabled = changes.enabled.newValue;
+  if (changes.enabled) {
+    enabled = changes.enabled.newValue;
+    if (enabled) { switchFailed = false; userInteracting = false; }
+  }
   if (changes.rememberAcrossConvos) rememberAcrossConvos = changes.rememberAcrossConvos.newValue;
   if (changes.showToast) showToast = changes.showToast.newValue;
 });
@@ -85,7 +88,7 @@ const lockFocus = () => {
 
 const VERIFY_DELAY = 300;
 
-const dismissMenu = (btn) => btn.click();
+const dismissMenu = (panel) => panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 
 const openMenuAndSelect = async (btn, modelId) => {
   btn.click();
@@ -97,10 +100,10 @@ const openMenuAndSelect = async (btn, modelId) => {
   const items = panel.querySelectorAll('button.mat-mdc-menu-item, [role="menuitem"]');
   const texts = [...items].map((el) => el.textContent.trim().toLowerCase());
   const knownCount = texts.filter((t) => KNOWN_MODELS.some((m) => t.startsWith(m))).length;
-  if (knownCount < 2) { dismissMenu(btn); return false; }
+  if (knownCount < 2) { dismissMenu(panel); return false; }
 
   const target = [...items].find((el) => el.textContent.trim().toLowerCase().startsWith(modelId));
-  if (!target) { dismissMenu(btn); return false; }
+  if (!target) { dismissMenu(panel); return false; }
 
   target.click();
   await new Promise((r) => setTimeout(r, VERIFY_DELAY));
@@ -181,7 +184,7 @@ new MutationObserver(() => {
   if (location.href !== lastUrl) {
     lastUrl = location.href;
     const convId = getConversationId();
-    const isNewConversation = convId && convId !== lastConvId;
+    const isNewConversation = lastConvId && convId !== lastConvId;
     lastConvId = convId;
     if (!userChose || (isNewConversation && !rememberAcrossConvos)) {
       targetModel = preferredModel;
