@@ -81,6 +81,8 @@ const lockFocus = () => {
 
 const VERIFY_DELAY = 300;
 
+const dismissMenu = () => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
 const openMenuAndSelect = async (btn, modelId) => {
   btn.click();
   await new Promise((r) => setTimeout(r, MENU_RENDER_DELAY));
@@ -91,10 +93,10 @@ const openMenuAndSelect = async (btn, modelId) => {
   const items = panel.querySelectorAll('button.mat-mdc-menu-item, [role="menuitem"]');
   const texts = [...items].map((el) => el.textContent.trim().toLowerCase());
   const knownCount = texts.filter((t) => KNOWN_MODELS.some((m) => t.startsWith(m))).length;
-  if (knownCount < 2) return false;
+  if (knownCount < 2) { dismissMenu(); return false; }
 
   const target = [...items].find((el) => el.textContent.trim().toLowerCase().startsWith(modelId));
-  if (!target) return false;
+  if (!target) { dismissMenu(); return false; }
 
   target.click();
   await new Promise((r) => setTimeout(r, VERIFY_DELAY));
