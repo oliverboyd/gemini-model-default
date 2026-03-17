@@ -66,7 +66,7 @@ const resolveUserInteraction = () => {
   if (!userInteracting) return;
   if (document.querySelector('.mat-mdc-menu-panel')) return; // menu still open
   const btn = document.querySelector('button.input-area-switch');
-  if (!btn) return;
+  if (!btn) { userInteracting = false; return; }
   const picked = parseModel(btn.textContent);
   if (picked) targetModel = picked;
   userChose = true;
@@ -85,7 +85,7 @@ const lockFocus = () => {
 
 const VERIFY_DELAY = 300;
 
-const dismissMenu = () => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+const dismissMenu = (btn) => btn.click();
 
 const openMenuAndSelect = async (btn, modelId) => {
   btn.click();
@@ -97,10 +97,10 @@ const openMenuAndSelect = async (btn, modelId) => {
   const items = panel.querySelectorAll('button.mat-mdc-menu-item, [role="menuitem"]');
   const texts = [...items].map((el) => el.textContent.trim().toLowerCase());
   const knownCount = texts.filter((t) => KNOWN_MODELS.some((m) => t.startsWith(m))).length;
-  if (knownCount < 2) { dismissMenu(); return false; }
+  if (knownCount < 2) { dismissMenu(btn); return false; }
 
   const target = [...items].find((el) => el.textContent.trim().toLowerCase().startsWith(modelId));
-  if (!target) { dismissMenu(); return false; }
+  if (!target) { dismissMenu(btn); return false; }
 
   target.click();
   await new Promise((r) => setTimeout(r, VERIFY_DELAY));
@@ -167,6 +167,7 @@ const checkForNewTurns = () => {
 };
 
 setInterval(() => {
+  if (!enabled) return;
   resolveUserInteraction();
   checkForNewTurns();
   enforceModel();
@@ -180,7 +181,7 @@ new MutationObserver(() => {
   if (location.href !== lastUrl) {
     lastUrl = location.href;
     const convId = getConversationId();
-    const isNewConversation = lastConvId && convId !== lastConvId;
+    const isNewConversation = convId && convId !== lastConvId;
     lastConvId = convId;
     if (!userChose || (isNewConversation && !rememberAcrossConvos)) {
       targetModel = preferredModel;
