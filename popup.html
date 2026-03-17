@@ -3,7 +3,7 @@
 <head>
   <style>
     body {
-      width: 230px;
+      width: 250px;
       padding: 0;
       font-family: 'Segoe UI', system-ui, sans-serif;
       background: #1e1e2a;
@@ -17,7 +17,7 @@
       padding: 14px 16px 12px;
     }
     .header img { width: 24px; height: 24px; border-radius: 5px; }
-    .header span { font-size: 13px; font-weight: 600; color: #ddd; }
+    .header-title { font-size: 13px; font-weight: 600; color: #ddd; flex: 1; }
     .section-label {
       font-size: 10px;
       font-weight: 600;
@@ -73,13 +73,21 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 6px 16px 14px;
+      padding: 6px 16px;
       font-size: 13px;
+    }
+    .toggle-row span { font-weight: 500; }
+    .toggle-row .hint {
+      font-size: 11px;
+      color: #666;
+      font-weight: 400;
+      margin-top: 2px;
     }
     .switch {
       position: relative;
       width: 32px;
       height: 18px;
+      flex-shrink: 0;
     }
     .switch input { display: none; }
     .slider {
@@ -106,23 +114,67 @@
       transform: translateX(14px);
       background: #7a9ec9;
     }
+    .tip {
+      position: relative;
+      cursor: help;
+      border-bottom: 1px dotted #555;
+    }
+    .tip::after {
+      content: attr(data-tip);
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 0;
+      background: #333;
+      color: #ddd;
+      font-size: 11px;
+      font-weight: 400;
+      padding: 6px 10px;
+      border-radius: 6px;
+      width: 180px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s;
+      line-height: 1.4;
+    }
+    .tip:hover::after { opacity: 1; }
+    .body-content { transition: opacity 0.2s; }
+    .body-content.disabled { opacity: 0.35; pointer-events: none; }
+    .spacer { height: 8px; }
   </style>
 </head>
 <body>
   <div class="header">
     <img src="icons/icon-128.png" alt="">
-    <span>Gemini Model Default</span>
-  </div>
-  <p class="section-label">Default model</p>
-  <div class="options" id="options"></div>
-  <hr class="divider">
-  <div class="toggle-row">
-    <span>Notifications</span>
+    <span class="header-title">Gemini Model Default</span>
     <label class="switch">
-      <input type="checkbox" id="showToast">
+      <input type="checkbox" id="enabled">
       <span class="slider"></span>
     </label>
   </div>
+
+  <div class="body-content" id="body-content">
+    <p class="section-label">Default model</p>
+    <div class="options" id="options"></div>
+
+    <hr class="divider">
+
+    <div class="toggle-row">
+      <span class="tip" data-tip="Keep your manual model selection across new conversations">Remember my choice</span>
+      <label class="switch">
+        <input type="checkbox" id="rememberAcrossConvos">
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="toggle-row">
+      <span>Notifications</span>
+      <label class="switch">
+        <input type="checkbox" id="showToast">
+        <span class="slider"></span>
+      </label>
+    </div>
+  </div>
+  <div class="spacer"></div>
   <script src="popup.js"></script>
 </body>
 </html>

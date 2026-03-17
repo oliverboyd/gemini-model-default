@@ -8,14 +8,17 @@ let isEnforcing = false;
 let switchFailed = false;
 let userInteracting = false;
 let userChose = false;
-let trackedBtn = null;
 let lastTurnCount = 0;
 let preferredModel = 'pro';
+let enabled = true;
+let rememberAcrossConvos = false;
 let showToast = false;
 let targetModel = preferredModel;
 
-chrome.storage.sync.get({ preferredModel: 'pro', showToast: false }, (data) => {
+chrome.storage.sync.get({ preferredModel: 'pro', enabled: true, rememberAcrossConvos: false, showToast: false }, (data) => {
   preferredModel = data.preferredModel;
+  enabled = data.enabled;
+  rememberAcrossConvos = data.rememberAcrossConvos;
   showToast = data.showToast;
   targetModel = preferredModel;
 });
@@ -27,6 +30,8 @@ chrome.storage.onChanged.addListener((changes) => {
     userInteracting = false;
     userChose = false;
   }
+  if (changes.enabled) enabled = changes.enabled.newValue;
+  if (changes.rememberAcrossConvos) rememberAcrossConvos = changes.rememberAcrossConvos.newValue;
   if (changes.showToast) showToast = changes.showToast.newValue;
 });
 
@@ -51,14 +56,10 @@ const shouldSkip = () => SKIP_PATHS.some((p) => location.pathname.startsWith(p))
 
 const parseModel = (text) => KNOWN_MODELS.find((m) => text.trim().toLowerCase().includes(m)) ?? null;
 
-// Track user clicks on the model button to detect manual switches
-const trackButton = (btn) => {
-  if (btn === trackedBtn) return;
-  trackedBtn = btn;
-  btn.addEventListener('click', () => {
-    if (!isEnforcing) userInteracting = true;
-  }, true);
-};
+// Detect user clicks on the model button via delegation (survives re-renders)
+document.addEventListener('click', (e) => {
+  if (!isEnforcing && e.target.closest('button.input-area-switch')) userInteracting = true;
+}, true);
 
 // Resolve user interaction once the menu closes — adopt whatever they picked
 const resolveUserInteraction = () => {
@@ -109,14 +110,12 @@ const openMenuAndSelect = async (btn, modelId) => {
 };
 
 const enforceModel = async () => {
-  if (isEnforcing || shouldSkip() || switchFailed || userInteracting) return;
+  if (!enabled || isEnforcing || shouldSkip() || switchFailed || userInteracting) return;
   isEnforcing = true;
 
   try {
     const btn = document.querySelector('button.input-area-switch');
     if (!btn) return;
-
-    trackButton(btn);
 
     const btnText = btn.textContent.trim().toLowerCase();
     if (btnText.includes(targetModel)) return;
@@ -174,14 +173,21 @@ setInterval(() => {
 }, POLL_INTERVAL);
 
 // Re-check on SPA navigation
+const getConversationId = () => location.pathname.match(/\/app\/([^/?]+)/)?.[1] ?? null;
 let lastUrl = location.href;
+let lastConvId = getConversationId();
 new MutationObserver(() => {
   if (location.href !== lastUrl) {
     lastUrl = location.href;
-    targetModel = preferredModel;
+    const convId = getConversationId();
+    const isNewConversation = lastConvId && convId !== lastConvId;
+    lastConvId = convId;
+    if (!userChose || (isNewConversation && !rememberAcrossConvos)) {
+      targetModel = preferredModel;
+      userChose = false;
+    }
     switchFailed = false;
     userInteracting = false;
-    userChose = false;
     lastTurnCount = 0;
     enforceModel();
   }
