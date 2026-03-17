@@ -13,6 +13,7 @@ const renderPreferred = (selected) => {
     opt.className = `option${model.id === selected ? ' selected' : ''}`;
     opt.innerHTML = `
       <input type="radio" name="model" value="${model.id}" ${model.id === selected ? 'checked' : ''}>
+      <span class="radio-dot"></span>
       <span class="label-name">${model.name}</span>
     `;
     opt.querySelector('input').addEventListener('change', () => {
