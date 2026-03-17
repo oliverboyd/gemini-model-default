@@ -70,33 +70,19 @@ const resolveUserInteraction = () => {
   userInteracting = false;
 };
 
-const saveFocus = () => {
+// Prevent focus from leaving the active element during enforcement
+const lockFocus = () => {
   const el = document.activeElement;
-  if (!el || el === document.body) return null;
-  if (el.selectionStart !== undefined) return { el, start: el.selectionStart, end: el.selectionEnd };
-  const sel = window.getSelection();
-  if (sel.rangeCount) return { el, range: sel.getRangeAt(0).cloneRange() };
-  return { el };
-};
-
-const restoreFocus = (saved) => {
-  if (!saved) return;
-  saved.el.focus();
-  if (saved.start !== undefined) {
-    saved.el.selectionStart = saved.start;
-    saved.el.selectionEnd = saved.end;
-  } else if (saved.range) {
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(saved.range);
-  }
+  if (!el || el === document.body) return () => {};
+  const handler = () => el.focus();
+  el.addEventListener('focusout', handler);
+  return () => el.removeEventListener('focusout', handler);
 };
 
 const VERIFY_DELAY = 300;
 
-const openMenuAndSelect = async (btn, modelId, saved) => {
+const openMenuAndSelect = async (btn, modelId) => {
   btn.click();
-  restoreFocus(saved);
   await new Promise((r) => setTimeout(r, MENU_RENDER_DELAY));
 
   const panel = document.querySelector('.mat-mdc-menu-panel');
@@ -111,7 +97,6 @@ const openMenuAndSelect = async (btn, modelId, saved) => {
   if (!target) return false;
 
   target.click();
-  restoreFocus(saved);
   await new Promise((r) => setTimeout(r, VERIFY_DELAY));
 
   const newText = btn.textContent.trim().toLowerCase();
@@ -131,7 +116,7 @@ const enforceModel = async () => {
     const btnText = btn.textContent.trim().toLowerCase();
     if (btnText.includes(targetModel)) return;
 
-    const saved = saveFocus();
+    const unlockFocus = lockFocus();
 
     // Hide menu during switch so it's not visible to user
     const hide = document.createElement('style');
@@ -140,7 +125,7 @@ const enforceModel = async () => {
     document.head.appendChild(hide);
 
     try {
-      const switched = await openMenuAndSelect(btn, targetModel, saved);
+      const switched = await openMenuAndSelect(btn, targetModel);
       if (switched) {
         if (showToast) {
           const name = targetModel.charAt(0).toUpperCase() + targetModel.slice(1);
@@ -159,7 +144,7 @@ const enforceModel = async () => {
       }
     } finally {
       document.getElementById('gemini-ext-hide')?.remove();
-      restoreFocus(saved);
+      unlockFocus();
     }
   } finally {
     isEnforcing = false;
