@@ -1,5 +1,5 @@
 const SKIP_PATHS = ['/gems/edit', '/gems/create', '/settings', '/extensions'];
-const KNOWN_MODELS = ['gemini 3', 'pro', 'fast', 'thinking'];
+const KNOWN_MODELS = ['pro', 'fast', 'thinking'];
 const POLL_INTERVAL = 1500;
 const MENU_RENDER_DELAY = 400;
 const TURN_SELECTORS = 'model-response, user-query, .conversation-turn, [data-message-id]';
@@ -61,11 +61,16 @@ const enforcePro = async () => {
     const btnText = btn.textContent.trim().toLowerCase();
     if (btnText.includes(preferredModel)) return;
 
+    // Hide menu during switch so it's not visible to user
+    const hideStyle = document.createElement('style');
+    hideStyle.textContent = '.cdk-overlay-container { visibility: hidden !important; }';
+    document.head.appendChild(hideStyle);
+
     btn.click();
     await new Promise((r) => setTimeout(r, MENU_RENDER_DELAY));
 
     const panel = document.querySelector('.mat-mdc-menu-panel');
-    if (!panel) return;
+    if (!panel) { hideStyle.remove(); return; }
 
     const items = panel.querySelectorAll('button.mat-mdc-menu-item, [role="menuitem"]');
     const texts = [...items].map((el) => el.textContent.trim().toLowerCase());
@@ -81,6 +86,8 @@ const enforcePro = async () => {
       }
     }
   } finally {
+    document.querySelector('style[data-gemini-hide]')?.remove();
+    hideStyle?.remove();
     isEnforcing = false;
   }
 };

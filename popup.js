@@ -1,5 +1,4 @@
 const MODELS = [
-  { id: 'gemini 3', name: 'Gemini 3' },
   { id: 'fast', name: 'Fast' },
   { id: 'thinking', name: 'Thinking' },
   { id: 'pro', name: 'Pro' },
