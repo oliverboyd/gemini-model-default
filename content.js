@@ -7,6 +7,7 @@ const TURN_SELECTORS = 'model-response, user-query, .conversation-turn, [data-me
 let isEnforcing = false;
 let switchFailed = false;
 let userInteracting = false;
+let userChose = false;
 let trackedBtn = null;
 let lastTurnCount = 0;
 let preferredModel = 'pro';
@@ -24,6 +25,7 @@ chrome.storage.onChanged.addListener((changes) => {
     targetModel = preferredModel;
     switchFailed = false;
     userInteracting = false;
+    userChose = false;
   }
   if (changes.showToast) showToast = changes.showToast.newValue;
 });
@@ -66,6 +68,7 @@ const resolveUserInteraction = () => {
   if (!btn) return;
   const picked = parseModel(btn.textContent);
   if (picked) targetModel = picked;
+  userChose = true;
   switchFailed = false;
   userInteracting = false;
 };
@@ -157,7 +160,10 @@ const enforceModel = async () => {
 const checkForNewTurns = () => {
   const turns = document.querySelectorAll(TURN_SELECTORS);
   const count = turns.length;
-  if (count > lastTurnCount && lastTurnCount > 0) switchFailed = false;
+  if (count > lastTurnCount && lastTurnCount > 0) {
+    if (!userChose) targetModel = preferredModel;
+    switchFailed = false;
+  }
   if (count > 0) lastTurnCount = count;
 };
 
@@ -175,6 +181,7 @@ new MutationObserver(() => {
     targetModel = preferredModel;
     switchFailed = false;
     userInteracting = false;
+    userChose = false;
     lastTurnCount = 0;
     enforceModel();
   }
