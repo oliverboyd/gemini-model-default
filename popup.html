@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body {
+      width: 220px;
+      padding: 16px;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #1e1e1e;
+      color: #e0e0e0;
+      margin: 0;
+    }
+    h3 {
+      margin: 0 0 12px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: background 0.15s;
+    }
+    .option:hover { background: #2a2a2a; }
+    .option.selected { background: #1a3a5c; }
+    .option input { accent-color: #8ab4f8; }
+    .label-name { font-weight: 500; }
+    .label-desc {
+      font-size: 11px;
+      color: #999;
+      margin-left: auto;
+    }
+  </style>
+</head>
+<body>
+  <h3>Default model</h3>
+  <div id="options"></div>
+  <hr style="border: none; border-top: 1px solid #333; margin: 12px 0;">
+  <label class="option" id="toast-toggle">
+    <input type="checkbox" id="showToast">
+    <span class="label-name">Show notifications</span>
+  </label>
+  <script src="popup.js"></script>
+</body>
+</html>
