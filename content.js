@@ -15,12 +15,17 @@ let rememberAcrossConvos = false;
 let showToast = false;
 let targetModel = preferredModel;
 
-chrome.storage.sync.get({ preferredModel: 'pro', enabled: true, rememberAcrossConvos: false, showToast: false }, (data) => {
+chrome.storage.sync.get({ preferredModel: 'pro', enabled: true, rememberAcrossConvos: false, showToast: false, userChosenModel: null }, (data) => {
   preferredModel = data.preferredModel;
   enabled = data.enabled;
   rememberAcrossConvos = data.rememberAcrossConvos;
   showToast = data.showToast;
-  targetModel = preferredModel;
+  if (data.rememberAcrossConvos && data.userChosenModel) {
+    targetModel = data.userChosenModel;
+    userChose = true;
+  } else {
+    targetModel = preferredModel;
+  }
 });
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.preferredModel) {
@@ -29,12 +34,20 @@ chrome.storage.onChanged.addListener((changes) => {
     switchFailed = false;
     userInteracting = false;
     userChose = false;
+    chrome.storage.sync.remove('userChosenModel');
   }
   if (changes.enabled) {
     enabled = changes.enabled.newValue;
     if (enabled) { switchFailed = false; userInteracting = false; }
   }
-  if (changes.rememberAcrossConvos) rememberAcrossConvos = changes.rememberAcrossConvos.newValue;
+  if (changes.rememberAcrossConvos) {
+    rememberAcrossConvos = changes.rememberAcrossConvos.newValue;
+    if (!rememberAcrossConvos) {
+      userChose = false;
+      targetModel = preferredModel;
+      chrome.storage.sync.remove('userChosenModel');
+    }
+  }
   if (changes.showToast) showToast = changes.showToast.newValue;
 });
 
@@ -73,6 +86,7 @@ const resolveUserInteraction = () => {
   const picked = parseModel(btn.textContent);
   if (picked) targetModel = picked;
   userChose = true;
+  if (rememberAcrossConvos) chrome.storage.sync.set({ userChosenModel: picked });
   switchFailed = false;
   userInteracting = false;
 };
@@ -189,6 +203,7 @@ new MutationObserver(() => {
     if (!userChose || (isNewConversation && !rememberAcrossConvos)) {
       targetModel = preferredModel;
       userChose = false;
+      chrome.storage.sync.remove('userChosenModel');
     }
     switchFailed = false;
     userInteracting = false;
