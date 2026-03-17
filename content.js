@@ -9,14 +9,17 @@ let userOverride = false;
 let trackedBtn = null;
 let lastTurnCount = 0;
 let preferredModel = 'pro';
-let showToast = true;
+let fallbackModel = 'none';
+let showToast = false;
 
-chrome.storage.sync.get({ preferredModel: 'pro', showToast: true }, (data) => {
+chrome.storage.sync.get({ preferredModel: 'pro', fallbackModel: 'none', showToast: false }, (data) => {
   preferredModel = data.preferredModel;
+  fallbackModel = data.fallbackModel;
   showToast = data.showToast;
 });
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.preferredModel) preferredModel = changes.preferredModel.newValue;
+  if (changes.fallbackModel) fallbackModel = changes.fallbackModel.newValue;
   if (changes.showToast) showToast = changes.showToast.newValue;
 });
 
@@ -48,6 +51,30 @@ const trackButton = (btn) => {
   }, true);
 };
 
+const VERIFY_DELAY = 300;
+
+const openMenuAndSelect = async (btn, modelId) => {
+  btn.click();
+  await new Promise((r) => setTimeout(r, MENU_RENDER_DELAY));
+
+  const panel = document.querySelector('.mat-mdc-menu-panel');
+  if (!panel) return false;
+
+  const items = panel.querySelectorAll('button.mat-mdc-menu-item, [role="menuitem"]');
+  const texts = [...items].map((el) => el.textContent.trim().toLowerCase());
+  const knownCount = texts.filter((t) => KNOWN_MODELS.some((m) => t.startsWith(m))).length;
+  if (knownCount < 2) return false;
+
+  const target = [...items].find((el) => el.textContent.trim().toLowerCase().startsWith(modelId));
+  if (!target) return false;
+
+  target.click();
+  await new Promise((r) => setTimeout(r, VERIFY_DELAY));
+
+  const newText = btn.textContent.trim().toLowerCase();
+  return newText.includes(modelId);
+};
+
 const enforcePro = async () => {
   if (isEnforcing || shouldSkip() || userOverride) return;
   isEnforcing = true;
@@ -60,34 +87,44 @@ const enforcePro = async () => {
 
     const btnText = btn.textContent.trim().toLowerCase();
     if (btnText.includes(preferredModel)) return;
+    // Already on fallback model — don't fight it
+    if (fallbackModel !== 'none' && btnText.includes(fallbackModel)) return;
 
     // Hide menu during switch so it's not visible to user
-    const hideStyle = document.createElement('style');
-    hideStyle.textContent = '.cdk-overlay-container { visibility: hidden !important; }';
-    document.head.appendChild(hideStyle);
+    const hide = document.createElement('style');
+    hide.id = 'gemini-ext-hide';
+    hide.textContent = '.cdk-overlay-container { visibility: hidden !important; }';
+    document.head.appendChild(hide);
 
-    btn.click();
-    await new Promise((r) => setTimeout(r, MENU_RENDER_DELAY));
-
-    const panel = document.querySelector('.mat-mdc-menu-panel');
-    if (!panel) { hideStyle.remove(); return; }
-
-    const items = panel.querySelectorAll('button.mat-mdc-menu-item, [role="menuitem"]');
-    const texts = [...items].map((el) => el.textContent.trim().toLowerCase());
-    const knownCount = texts.filter((t) => KNOWN_MODELS.some((m) => t.startsWith(m))).length;
-    if (knownCount < 2) return;
-
-    const target = [...items].find((el) => el.textContent.trim().toLowerCase().startsWith(preferredModel));
-    if (target) {
-      target.click();
-      if (showToast) {
-        const name = preferredModel.charAt(0).toUpperCase() + preferredModel.slice(1);
-        showNotification(`Switched to ${name}`);
+    try {
+      const switched = await openMenuAndSelect(btn, preferredModel);
+      if (switched) {
+        if (showToast) {
+          const name = preferredModel.charAt(0).toUpperCase() + preferredModel.slice(1);
+          showNotification(`Switched to ${name}`);
+        }
+        return;
       }
+
+      // Preferred model switch failed (rate limit) — try fallback
+      if (fallbackModel !== 'none' && fallbackModel !== preferredModel) {
+        const fbSwitched = await openMenuAndSelect(btn, fallbackModel);
+        if (fbSwitched) {
+          if (showToast) {
+            const name = fallbackModel.charAt(0).toUpperCase() + fallbackModel.slice(1);
+            showNotification(`${preferredModel.charAt(0).toUpperCase() + preferredModel.slice(1)} unavailable — switched to ${name}`);
+          }
+          return;
+        }
+      }
+
+      // Both failed or no fallback configured — stop retrying until next trigger
+      userOverride = true;
+      if (showToast) showNotification('Model switch failed — pausing until next turn');
+    } finally {
+      document.getElementById('gemini-ext-hide')?.remove();
     }
   } finally {
-    document.querySelector('style[data-gemini-hide]')?.remove();
-    hideStyle?.remove();
     isEnforcing = false;
   }
 };
