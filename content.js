@@ -6,7 +6,6 @@ const TURN_SELECTORS = 'model-response, user-query, .conversation-turn, [data-me
 
 let isEnforcing = false;
 let switchFailed = false;
-let rateLimitedModel = null;
 let userInteracting = false;
 let userChose = false;
 let lastTurnCount = 0;
@@ -28,31 +27,18 @@ chrome.storage.sync.get({ preferredModel: 'pro', enabled: true, rememberAcrossCo
     targetModel = preferredModel;
   }
 });
-// Restore rate-limit state from storage (persists across page loads)
-chrome.storage.local.get(['rateLimitedModel', 'rateLimitedUntil'], (data) => {
-  console.debug('[GeminiExt] rate limit storage:', data);
-  if (data.rateLimitedModel && data.rateLimitedUntil > Date.now()) {
-    rateLimitedModel = data.rateLimitedModel;
-    console.debug('[GeminiExt] rate limit restored for', data.rateLimitedModel, ', resets at', new Date(data.rateLimitedUntil).toLocaleString());
-  } else if (data.rateLimitedModel) {
-    chrome.storage.local.remove(['rateLimitedModel', 'rateLimitedUntil']);
-    console.debug('[GeminiExt] rate limit expired, cleared');
-  }
-});
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.preferredModel) {
     preferredModel = changes.preferredModel.newValue;
     targetModel = preferredModel;
     switchFailed = false;
-    rateLimitedModel = null;
-    chrome.storage.local.remove(['rateLimitedModel', 'rateLimitedUntil']);
     userInteracting = false;
     userChose = false;
     chrome.storage.sync.remove('userChosenModel');
   }
   if (changes.enabled) {
     enabled = changes.enabled.newValue;
-    if (enabled) { switchFailed = false; rateLimitedModel = null; chrome.storage.local.remove(['rateLimitedModel', 'rateLimitedUntil']); userInteracting = false; }
+    if (enabled) { switchFailed = false; userInteracting = false; }
   }
   if (changes.rememberAcrossConvos) {
     rememberAcrossConvos = changes.rememberAcrossConvos.newValue;
@@ -85,16 +71,6 @@ const showNotification = (msg) => {
 const shouldSkip = () => SKIP_PATHS.some((p) => location.pathname.startsWith(p));
 
 const parseModel = (text) => KNOWN_MODELS.find((m) => text.trim().toLowerCase().includes(m)) ?? null;
-
-// Parse "Limit resets Mar 20, 2:32 AM" → timestamp
-const parseResetTime = (text) => {
-  const match = text.match(/limit resets?\s+(.+)/i);
-  if (!match) return Date.now() + 6 * 60 * 60 * 1000; // fallback: 6 hours
-  const parsed = Date.parse(match[1]);
-  if (isNaN(parsed)) return Date.now() + 6 * 60 * 60 * 1000;
-  // If parsed time is in the past (e.g. no year in string), it might be next year — but more likely it's today/tomorrow
-  return parsed < Date.now() ? Date.now() + 60 * 60 * 1000 : parsed;
-};
 
 // Detect user clicks on the model button via delegation (survives re-renders)
 document.addEventListener('click', (e) => {
@@ -154,10 +130,7 @@ const openMenuAndSelect = async (btn, modelId) => {
   // Don't click rate-limited/disabled items — just dismiss and bail
   const targetText = target.textContent.toLowerCase();
   if (target.disabled || target.getAttribute('aria-disabled') === 'true' || targetText.includes('limit')) {
-    const resetTime = parseResetTime(targetText);
-    console.debug('[GeminiExt] rate limit detected, resets at', new Date(resetTime).toLocaleString());
-    rateLimitedModel = modelId;
-    chrome.storage.local.set({ rateLimitedModel: modelId, rateLimitedUntil: resetTime });
+    console.debug('[GeminiExt] rate limit detected for', modelId);
     dismissMenu(panel);
     return false;
   }
@@ -171,9 +144,8 @@ const openMenuAndSelect = async (btn, modelId) => {
 };
 
 const enforceModel = async () => {
-  const isRateLimited = rateLimitedModel === targetModel;
-  if (!enabled || isEnforcing || shouldSkip() || switchFailed || isRateLimited || userInteracting) {
-    if (switchFailed || isRateLimited) console.debug('[GeminiExt] enforcement skipped — switchFailed:', switchFailed, 'rateLimited:', rateLimitedModel);
+  if (!enabled || isEnforcing || shouldSkip() || switchFailed || userInteracting) {
+    if (switchFailed) console.debug('[GeminiExt] enforcement skipped — switchFailed:', switchFailed);
     return;
   }
   console.debug('[GeminiExt] enforcing model, target:', targetModel);
@@ -196,7 +168,7 @@ const enforceModel = async () => {
 
     try {
       const switched = await openMenuAndSelect(btn, targetModel);
-      console.debug('[GeminiExt] switch result:', switched, 'rateLimitedModel:', rateLimitedModel);
+      console.debug('[GeminiExt] switch result:', switched);
       // Only attempt once per navigation — if Gemini reverts (rate-limited), don't retry
       switchFailed = true;
       if (switched) {
