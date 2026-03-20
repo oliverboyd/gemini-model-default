@@ -29,14 +29,13 @@ chrome.storage.sync.get({ preferredModel: 'pro', enabled: true, rememberAcrossCo
   }
 });
 // Restore rate-limit state from storage (persists across page loads)
-chrome.storage.local.get(['rateLimitedModel', 'rateLimitedAt'], (data) => {
-  const SIX_HOURS = 6 * 60 * 60 * 1000;
+chrome.storage.local.get(['rateLimitedModel', 'rateLimitedUntil'], (data) => {
   console.debug('[GeminiExt] rate limit storage:', data);
-  if (data.rateLimitedModel && Date.now() - data.rateLimitedAt < SIX_HOURS) {
+  if (data.rateLimitedModel && data.rateLimitedUntil > Date.now()) {
     rateLimited = true;
-    console.debug('[GeminiExt] rate limit restored from storage');
+    console.debug('[GeminiExt] rate limit restored, resets at', new Date(data.rateLimitedUntil).toLocaleString());
   } else if (data.rateLimitedModel) {
-    chrome.storage.local.remove(['rateLimitedModel', 'rateLimitedAt']);
+    chrome.storage.local.remove(['rateLimitedModel', 'rateLimitedUntil']);
     console.debug('[GeminiExt] rate limit expired, cleared');
   }
 });
@@ -46,14 +45,14 @@ chrome.storage.onChanged.addListener((changes) => {
     targetModel = preferredModel;
     switchFailed = false;
     rateLimited = false;
-    chrome.storage.local.remove(['rateLimitedModel', 'rateLimitedAt']);
+    chrome.storage.local.remove(['rateLimitedModel', 'rateLimitedUntil']);
     userInteracting = false;
     userChose = false;
     chrome.storage.sync.remove('userChosenModel');
   }
   if (changes.enabled) {
     enabled = changes.enabled.newValue;
-    if (enabled) { switchFailed = false; rateLimited = false; chrome.storage.local.remove(['rateLimitedModel', 'rateLimitedAt']); userInteracting = false; }
+    if (enabled) { switchFailed = false; rateLimited = false; chrome.storage.local.remove(['rateLimitedModel', 'rateLimitedUntil']); userInteracting = false; }
   }
   if (changes.rememberAcrossConvos) {
     rememberAcrossConvos = changes.rememberAcrossConvos.newValue;
@@ -86,6 +85,16 @@ const showNotification = (msg) => {
 const shouldSkip = () => SKIP_PATHS.some((p) => location.pathname.startsWith(p));
 
 const parseModel = (text) => KNOWN_MODELS.find((m) => text.trim().toLowerCase().includes(m)) ?? null;
+
+// Parse "Limit resets Mar 20, 2:32 AM" → timestamp
+const parseResetTime = (text) => {
+  const match = text.match(/limit resets?\s+(.+)/i);
+  if (!match) return Date.now() + 6 * 60 * 60 * 1000; // fallback: 6 hours
+  const parsed = Date.parse(match[1]);
+  if (isNaN(parsed)) return Date.now() + 6 * 60 * 60 * 1000;
+  // If parsed time is in the past (e.g. no year in string), it might be next year — but more likely it's today/tomorrow
+  return parsed < Date.now() ? Date.now() + 60 * 60 * 1000 : parsed;
+};
 
 // Detect user clicks on the model button via delegation (survives re-renders)
 document.addEventListener('click', (e) => {
@@ -138,9 +147,10 @@ const openMenuAndSelect = async (btn, modelId) => {
   // Don't click rate-limited/disabled items — just dismiss and bail
   const targetText = target.textContent.toLowerCase();
   if (target.disabled || target.getAttribute('aria-disabled') === 'true' || targetText.includes('limit')) {
-    console.debug('[GeminiExt] rate limit detected, targetText:', targetText);
+    const resetTime = parseResetTime(targetText);
+    console.debug('[GeminiExt] rate limit detected, resets at', new Date(resetTime).toLocaleString());
     rateLimited = true;
-    chrome.storage.local.set({ rateLimitedModel: modelId, rateLimitedAt: Date.now() });
+    chrome.storage.local.set({ rateLimitedModel: modelId, rateLimitedUntil: resetTime });
     dismissMenu(panel);
     return false;
   }
@@ -173,7 +183,7 @@ const enforceModel = async () => {
     // Hide menu during switch so it's not visible to user
     const hide = document.createElement('style');
     hide.id = 'gemini-ext-hide';
-    hide.textContent = '.cdk-overlay-container { opacity: 0 !important; pointer-events: none !important; }';
+    hide.textContent = '.cdk-overlay-container, .cdk-overlay-pane, .mat-mdc-menu-panel { position: fixed !important; top: -99999px !important; left: -99999px !important; pointer-events: none !important; }';
     document.head.appendChild(hide);
 
     try {
