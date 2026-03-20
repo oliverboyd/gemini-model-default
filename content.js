@@ -6,6 +6,7 @@ const TURN_SELECTORS = 'model-response, user-query, .conversation-turn, [data-me
 
 let isEnforcing = false;
 let switchFailed = false;
+let rateLimited = false;
 let userInteracting = false;
 let userChose = false;
 let lastTurnCount = 0;
@@ -27,18 +28,32 @@ chrome.storage.sync.get({ preferredModel: 'pro', enabled: true, rememberAcrossCo
     targetModel = preferredModel;
   }
 });
+// Restore rate-limit state from storage (persists across page loads)
+chrome.storage.local.get(['rateLimitedModel', 'rateLimitedAt'], (data) => {
+  const SIX_HOURS = 6 * 60 * 60 * 1000;
+  console.debug('[GeminiExt] rate limit storage:', data);
+  if (data.rateLimitedModel && Date.now() - data.rateLimitedAt < SIX_HOURS) {
+    rateLimited = true;
+    console.debug('[GeminiExt] rate limit restored from storage');
+  } else if (data.rateLimitedModel) {
+    chrome.storage.local.remove(['rateLimitedModel', 'rateLimitedAt']);
+    console.debug('[GeminiExt] rate limit expired, cleared');
+  }
+});
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.preferredModel) {
     preferredModel = changes.preferredModel.newValue;
     targetModel = preferredModel;
     switchFailed = false;
+    rateLimited = false;
+    chrome.storage.local.remove(['rateLimitedModel', 'rateLimitedAt']);
     userInteracting = false;
     userChose = false;
     chrome.storage.sync.remove('userChosenModel');
   }
   if (changes.enabled) {
     enabled = changes.enabled.newValue;
-    if (enabled) { switchFailed = false; userInteracting = false; }
+    if (enabled) { switchFailed = false; rateLimited = false; chrome.storage.local.remove(['rateLimitedModel', 'rateLimitedAt']); userInteracting = false; }
   }
   if (changes.rememberAcrossConvos) {
     rememberAcrossConvos = changes.rememberAcrossConvos.newValue;
@@ -123,10 +138,14 @@ const openMenuAndSelect = async (btn, modelId) => {
   // Don't click rate-limited/disabled items — just dismiss and bail
   const targetText = target.textContent.toLowerCase();
   if (target.disabled || target.getAttribute('aria-disabled') === 'true' || targetText.includes('limit')) {
+    console.debug('[GeminiExt] rate limit detected, targetText:', targetText);
+    rateLimited = true;
+    chrome.storage.local.set({ rateLimitedModel: modelId, rateLimitedAt: Date.now() });
     dismissMenu(panel);
     return false;
   }
 
+  console.debug('[GeminiExt] clicking target model:', modelId);
   target.click();
   await new Promise((r) => setTimeout(r, VERIFY_DELAY));
 
@@ -135,7 +154,11 @@ const openMenuAndSelect = async (btn, modelId) => {
 };
 
 const enforceModel = async () => {
-  if (!enabled || isEnforcing || shouldSkip() || switchFailed || userInteracting) return;
+  if (!enabled || isEnforcing || shouldSkip() || switchFailed || rateLimited || userInteracting) {
+    if (switchFailed || rateLimited) console.debug('[GeminiExt] enforcement skipped — switchFailed:', switchFailed, 'rateLimited:', rateLimited);
+    return;
+  }
+  console.debug('[GeminiExt] enforcing model, target:', targetModel);
   isEnforcing = true;
 
   try {
@@ -155,6 +178,7 @@ const enforceModel = async () => {
 
     try {
       const switched = await openMenuAndSelect(btn, targetModel);
+      console.debug('[GeminiExt] switch result:', switched, 'rateLimited:', rateLimited);
       // Only attempt once per navigation — if Gemini reverts (rate-limited), don't retry
       switchFailed = true;
       if (switched) {
