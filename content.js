@@ -95,10 +95,17 @@ const resolveUserInteraction = () => {
 // Prevent focus from leaving the active element during enforcement
 const lockFocus = () => {
   const el = document.activeElement;
-  if (!el || el === document.body) return () => {};
-  const handler = () => el.focus();
-  el.addEventListener('focusout', handler);
-  return () => el.removeEventListener('focusout', handler);
+  const restoreTarget = (!el || el === document.body) ? null : el;
+  if (restoreTarget) {
+    const handler = () => restoreTarget.focus();
+    restoreTarget.addEventListener('focusout', handler);
+    return () => { restoreTarget.removeEventListener('focusout', handler); restoreTarget.focus(); };
+  }
+  // No focused element — restore focus to the input area after enforcement
+  return () => {
+    const input = document.querySelector('.ql-editor, [contenteditable="true"], .input-area textarea');
+    if (input) input.focus();
+  };
 };
 
 const VERIFY_DELAY = 300;
@@ -123,10 +130,12 @@ const openMenuAndSelect = async (btn, modelId) => {
   // Don't click rate-limited/disabled items — just dismiss and bail
   const targetText = target.textContent.toLowerCase();
   if (target.disabled || target.getAttribute('aria-disabled') === 'true' || targetText.includes('limit')) {
+    console.debug('[GeminiExt] rate limit detected for', modelId);
     dismissMenu(panel);
     return false;
   }
 
+  console.debug('[GeminiExt] clicking target model:', modelId);
   target.click();
   await new Promise((r) => setTimeout(r, VERIFY_DELAY));
 
@@ -135,7 +144,11 @@ const openMenuAndSelect = async (btn, modelId) => {
 };
 
 const enforceModel = async () => {
-  if (!enabled || isEnforcing || shouldSkip() || switchFailed || userInteracting) return;
+  if (!enabled || isEnforcing || shouldSkip() || switchFailed || userInteracting) {
+    if (switchFailed) console.debug('[GeminiExt] enforcement skipped — switchFailed:', switchFailed);
+    return;
+  }
+  console.debug('[GeminiExt] enforcing model, target:', targetModel);
   isEnforcing = true;
 
   try {
@@ -150,11 +163,12 @@ const enforceModel = async () => {
     // Hide menu during switch so it's not visible to user
     const hide = document.createElement('style');
     hide.id = 'gemini-ext-hide';
-    hide.textContent = '.cdk-overlay-container { opacity: 0 !important; pointer-events: none !important; }';
+    hide.textContent = '.cdk-overlay-container, .cdk-overlay-pane, .mat-mdc-menu-panel { position: fixed !important; top: -99999px !important; left: -99999px !important; pointer-events: none !important; }';
     document.head.appendChild(hide);
 
     try {
       const switched = await openMenuAndSelect(btn, targetModel);
+      console.debug('[GeminiExt] switch result:', switched);
       // Only attempt once per navigation — if Gemini reverts (rate-limited), don't retry
       switchFailed = true;
       if (switched) {
