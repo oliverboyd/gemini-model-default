@@ -196,7 +196,7 @@ const enforceModel = async () => {
 
     try {
       const switched = await openMenuAndSelect(btn, targetModel);
-      console.debug('[GeminiExt] switch result:', switched, 'rateLimited:', rateLimited);
+      console.debug('[GeminiExt] switch result:', switched, 'rateLimitedModel:', rateLimitedModel);
       // Only attempt once per navigation — if Gemini reverts (rate-limited), don't retry
       switchFailed = true;
       if (switched) {
