@@ -159,11 +159,12 @@ const enforceModel = async () => {
     if (btnText.includes(targetModel)) return;
 
     const unlockFocus = lockFocus();
+    btn.style.setProperty('background-color', getComputedStyle(btn).backgroundColor, 'important');
 
     // Hide menu during switch so it's not visible to user
     const hide = document.createElement('style');
     hide.id = 'gemini-ext-hide';
-    hide.textContent = '.cdk-overlay-container, .cdk-overlay-pane, .mat-mdc-menu-panel { position: fixed !important; top: -99999px !important; left: -99999px !important; pointer-events: none !important; }';
+    hide.textContent = '.cdk-overlay-container, .cdk-overlay-pane, .cdk-overlay-backdrop, .mat-mdc-menu-panel { position: fixed !important; top: -99999px !important; left: -99999px !important; pointer-events: none !important; opacity: 0 !important; }';
     document.head.appendChild(hide);
 
     try {
@@ -192,7 +193,13 @@ const enforceModel = async () => {
         showNotification(`${preferredModel.charAt(0).toUpperCase() + preferredModel.slice(1)} unavailable — using ${name}`);
       }
     } finally {
+      // Click body to fully dismiss Gemini's menu UI state
+      document.body.click();
+      await new Promise((r) => setTimeout(r, 100));
+      document.querySelectorAll('.cdk-overlay-backdrop').forEach((b) => b.remove());
       document.getElementById('gemini-ext-hide')?.remove();
+      btn.style.removeProperty('background-color');
+      btn.blur();
       unlockFocus();
     }
   } finally {
