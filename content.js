@@ -119,10 +119,17 @@ const resolveUserInteraction = () => {
 // Prevent focus from leaving the active element during enforcement
 const lockFocus = () => {
   const el = document.activeElement;
-  if (!el || el === document.body) return () => {};
-  const handler = () => el.focus();
-  el.addEventListener('focusout', handler);
-  return () => el.removeEventListener('focusout', handler);
+  const restoreTarget = (!el || el === document.body) ? null : el;
+  if (restoreTarget) {
+    const handler = () => restoreTarget.focus();
+    restoreTarget.addEventListener('focusout', handler);
+    return () => { restoreTarget.removeEventListener('focusout', handler); restoreTarget.focus(); };
+  }
+  // No focused element — restore focus to the input area after enforcement
+  return () => {
+    const input = document.querySelector('.ql-editor, [contenteditable="true"], .input-area textarea');
+    if (input) input.focus();
+  };
 };
 
 const VERIFY_DELAY = 300;
