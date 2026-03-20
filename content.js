@@ -120,6 +120,13 @@ const openMenuAndSelect = async (btn, modelId) => {
   const target = [...items].find((el) => el.textContent.trim().toLowerCase().startsWith(modelId));
   if (!target) { dismissMenu(panel); return false; }
 
+  // Don't click rate-limited/disabled items — just dismiss and bail
+  const targetText = target.textContent.toLowerCase();
+  if (target.disabled || target.getAttribute('aria-disabled') === 'true' || targetText.includes('limit')) {
+    dismissMenu(panel);
+    return false;
+  }
+
   target.click();
   await new Promise((r) => setTimeout(r, VERIFY_DELAY));
 
@@ -143,11 +150,13 @@ const enforceModel = async () => {
     // Hide menu during switch so it's not visible to user
     const hide = document.createElement('style');
     hide.id = 'gemini-ext-hide';
-    hide.textContent = '.cdk-overlay-container { visibility: hidden !important; pointer-events: none !important; }';
+    hide.textContent = '.cdk-overlay-container { opacity: 0 !important; pointer-events: none !important; }';
     document.head.appendChild(hide);
 
     try {
       const switched = await openMenuAndSelect(btn, targetModel);
+      // Only attempt once per navigation — if Gemini reverts (rate-limited), don't retry
+      switchFailed = true;
       if (switched) {
         if (showToast) {
           const name = targetModel.charAt(0).toUpperCase() + targetModel.slice(1);
@@ -156,7 +165,11 @@ const enforceModel = async () => {
         return;
       }
 
-      // Switch failed (e.g. rate-limited) — accept whatever Gemini has, retry on next navigation
+      // Switch failed (e.g. rate-limited) — dismiss menu before unhiding
+      const leftover = document.querySelector('.mat-mdc-menu-panel');
+      if (leftover) dismissMenu(leftover);
+      await new Promise((r) => setTimeout(r, 200));
+
       const current = parseModel(btn.textContent);
       if (current) targetModel = current;
       switchFailed = true;
@@ -173,18 +186,20 @@ const enforceModel = async () => {
   }
 };
 
-// Detect new conversation turns — resets switchFailed so enforcement can retry
+// Detect new conversation turns — resets target model but not switchFailed (rate limits persist within a session)
 const checkForNewTurns = () => {
   const turns = document.querySelectorAll(TURN_SELECTORS);
   const count = turns.length;
   if (count > lastTurnCount && lastTurnCount > 0) {
     if (!userChose) targetModel = preferredModel;
-    switchFailed = false;
   }
   if (count > 0) lastTurnCount = count;
 };
 
-setInterval(() => {
+const isContextValid = () => { try { return !!chrome.runtime?.id; } catch { return false; } };
+
+const pollId = setInterval(() => {
+  if (!isContextValid()) { clearInterval(pollId); return; }
   if (!enabled) return;
   resolveUserInteraction();
   checkForNewTurns();
@@ -195,7 +210,8 @@ setInterval(() => {
 const getConversationId = () => location.pathname.match(/\/app\/([^/?]+)/)?.[1] ?? null;
 let lastUrl = location.href;
 let lastConvId = getConversationId();
-new MutationObserver(() => {
+const observer = new MutationObserver(() => {
+  if (!isContextValid()) { observer.disconnect(); return; }
   if (location.href !== lastUrl) {
     lastUrl = location.href;
     const convId = getConversationId();
@@ -206,9 +222,10 @@ new MutationObserver(() => {
       userChose = false;
       chrome.storage.sync.remove('userChosenModel');
     }
-    switchFailed = false;
+    if (isNewConversation) switchFailed = false;
     userInteracting = false;
     lastTurnCount = 0;
     enforceModel();
   }
-}).observe(document.body, { childList: true, subtree: true });
+});
+observer.observe(document.body, { childList: true, subtree: true });
