@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Gemini Model Default",
-  "version": "2.1",
+  "version": "2.2",
   "description": "Automatically selects your preferred model on Gemini",
   "content_scripts": [
     {
